@@ -2,11 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import supabase from '@/utils/supabase';
 
-import { SubjectEnrollment, Section, Subject, MateriaPorSeccion } from './types';
-import { SectionSelector } from './SectionSelector';
-import { SubjectsList } from './SubjectsList';
-import { RetakingSection } from './RetakingSection';
-import { PendingSection } from './PendingSection';
+import { SubjectEnrollment, Section, Subject, EnrollmentType } from '../../types';
+
+import { SubjectSelectionSection } from './SubjectSelectionSection';
 
 
 export interface InscripcionMateriasProps {
@@ -17,32 +15,18 @@ export interface InscripcionMateriasProps {
 export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
     numeroLegajo,
     onSave
-}) => {// States
+}) => {
     const [sections, setSections] = useState<Section[]>([]);
-    const [selectedSection, setSelectedSection] = useState<string | null>(null);
-    const [subjects, setSubjects] = useState<Subject[]>([]);
-    const [selectedSubjects, setSelectedSubjects] = useState<Set<string>>(new Set());
-    const [isRetaking, setIsRetaking] = useState(false);
-    const [hasPending, setHasPending] = useState(false);
-    const [retakeYear] = useState<number>(new Date().getFullYear());
-    const [retakeSubjects, setRetakeSubjects] = useState<Subject[]>([]);
-    const [selectedRetakeSubjects, setSelectedRetakeSubjects] = useState<Set<string>>(new Set());
-    const [pendingSubjects, setPendingSubjects] = useState<Subject[]>([]);
-    const [selectedPendingSubjects, setSelectedPendingSubjects] = useState<Set<string>>(new Set());
-    const [loading, setLoading] = useState(false);
+    const [showPendientes, setShowPendientes] = useState(false);
+    const [showRecursada, setShowRecursada] = useState(false);
+    const [showAprobadas, setShowAprobadas] = useState(false);
+    const [enrollments, setEnrollments] = useState<SubjectEnrollment[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [completedSelections, setCompletedSelections] = useState<Set<EnrollmentType>>(new Set());
 
-    // Fetch sections on component mount
     useEffect(() => {
         fetchSections();
     }, []);
-
-    // Fetch subjects when section is selected
-    useEffect(() => {
-        if (selectedSection) {
-            fetchSubjectsForSection(selectedSection);
-        }
-    }, [selectedSection]);
 
     const fetchSections = async () => {
         try {
@@ -59,182 +43,69 @@ export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
         }
     };
 
-    const fetchSubjectsForSection = async (sectionId: string) => {
-        try {
-            setLoading(true);
-            const { data, error } = await supabase
-                .from('materias_por_seccion')
-                .select(`
-                    id,
-                    materias_por_curso (
-                        id,
-                        materias (
-                            id,
-                            nombre,
-                            activa
-                        )
-                    )
-                `)
-                .eq('id_seccion', sectionId);
+    const handleSubjectsSelected = (subjects: Subject[], year: number, tipo: EnrollmentType) => {
+        // Primero filtramos las inscripciones existentes, removiendo las del mismo tipo
+        const filteredEnrollments = enrollments.filter(enroll => enroll.estado !== tipo);
 
-            if (error) throw error;
+        // Creamos las nuevas inscripciones
+        const newEnrollments = subjects.map(subject => ({
+            numero_legajo: numeroLegajo,
+            id_materia_seccion: subject.id_materia_seccion,
+            año_cursada: year,
+            intento: tipo === 'recursa' ? 2 : 1,
+            estado: tipo
+        }));
 
-            // Verificamos que los datos tengan la estructura correcta
-            const materiasData = data as unknown as MateriaPorSeccion[];
-
-            // Validamos la estructura de los datos
-            const isValidData = materiasData?.every(item =>
-                item?.materias_por_curso?.materias?.id &&
-                item?.materias_por_curso?.materias?.nombre &&
-                typeof item?.materias_por_curso?.materias?.activa === 'boolean'
-            );
-
-            if (!isValidData) {
-                throw new Error('La estructura de los datos no es válida');
-            }
-
-            // Transformamos los datos
-            const transformedSubjects = materiasData?.map(item => ({
-                id: item.materias_por_curso.materias.id,
-                nombre: item.materias_por_curso.materias.nombre,
-                activo: item.materias_por_curso.materias.activa,
-                id_materia_seccion: item.id
-            })) || [];
-
-            setSubjects(transformedSubjects);
-            // By default, select all subjects
-            setSelectedSubjects(new Set(transformedSubjects.map(s => s.id)));
-        } catch (err) {
-            setError('Error al cargar materias');
-            console.error(err);
-        } finally {
-            setLoading(false);
-        }
+        // Combinamos las inscripciones filtradas con las nuevas
+        setEnrollments([...filteredEnrollments, ...newEnrollments]);
+        setCompletedSelections(prev => new Set(prev).add(tipo));
     };
 
-    const handleSectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const sectionId = e.target.value; 
-        setSelectedSection(sectionId);
-        setSelectedSubjects(new Set());
+    const isPendingSelection = () => {
+        return (
+            (showPendientes && !completedSelections.has('adeuda')) ||
+            (showRecursada && !completedSelections.has('recursa')) ||
+            (showAprobadas && !completedSelections.has('aprobada'))
+        );
     };
 
-    const handleSubjectToggle = (subjectId: string) => {
-        const newSelected = new Set(selectedSubjects);
-        if (newSelected.has(subjectId)) {
-            newSelected.delete(subjectId);
-        } else {
-            newSelected.add(subjectId);
-        }
-        setSelectedSubjects(newSelected);
-    };
-
-    // Función para cargar materias disponibles para adeudadas
-    const fetchAvailableSubjects = async () => {
-        try {
-            setLoading(true);
-            const { data, error } = await supabase
-                .from('materias_por_seccion')
-                .select(`
-                    id,
-                    materias_por_curso (
-                        id,
-                        materias (
-                            id,
-                            nombre,
-                            activa
-                        )
-                    )
-                `);
-
-            if (error) throw error;
-
-            const materiasData = data as unknown as MateriaPorSeccion[];
-            const transformedSubjects = materiasData?.map(item => ({
-                id: item.materias_por_curso.materias.id,
-                nombre: item.materias_por_curso.materias.nombre,
-                activo: item.materias_por_curso.materias.activa,
-                id_materia_seccion: item.id
-            })) || [];
-
-            return transformedSubjects;
-        } catch (err) {
-            console.error('Error al cargar materias disponibles:', err);
-            setError('Error al cargar materias disponibles');
-            return [];
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        if (isRetaking) {
-            fetchAvailableSubjects().then(subjects => {
-                setRetakeSubjects(subjects);
+    const handleShowPendientes = (checked: boolean) => {
+        setShowPendientes(checked);
+        if (checked) {
+            setCompletedSelections(prev => {
+                const newSet = new Set(prev);
+                newSet.delete('adeuda');
+                return newSet;
             });
         }
-    }, [isRetaking]);
+    };
 
-    const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
-
-    useEffect(() => {
-        if (hasPending) {
-            fetchAvailableSubjects().then(subjects => {
-                setPendingSubjects(subjects);
+    const handleShowRecursada = (checked: boolean) => {
+        setShowRecursada(checked);
+        if (checked) {
+            setCompletedSelections(prev => {
+                const newSet = new Set(prev);
+                newSet.delete('recursa');
+                return newSet;
             });
         }
-    }, [hasPending]);
+    };
+
+    const handleShowAprobadas = (checked: boolean) => {
+        setShowAprobadas(checked);
+        if (checked) {
+            setCompletedSelections(prev => {
+                const newSet = new Set(prev);
+                newSet.delete('aprobada');
+                return newSet;
+            });
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!selectedSection) return;
-
-        const inscripciones: SubjectEnrollment[] = [];
-
-        // Process regular enrollments
-        subjects.forEach(subject => {
-            if (selectedSubjects.has(subject.id)) {
-                inscripciones.push({
-                    numero_legajo: numeroLegajo,
-                    id_materia_seccion: subject.id_materia_seccion,
-                    año_cursada: new Date().getFullYear(),
-                    intento: 1,
-                    estado: 'cursando'
-                });
-            }
-        });
-
-        // Process retaking subjects
-        if (isRetaking) {
-            retakeSubjects.forEach(subject => {
-                if (selectedRetakeSubjects.has(subject.id)) {
-                    inscripciones.push({
-                        numero_legajo: numeroLegajo,
-                        id_materia_seccion: subject.id_materia_seccion,
-                        año_cursada: retakeYear,
-                        intento: 2,
-                        estado: 'recursa'
-                    });
-                }
-            });
-        }
-
-        // Process pending subjects
-        if (hasPending) {
-            pendingSubjects.forEach(subject => {
-                if (selectedPendingSubjects.has(subject.id)) {
-                    inscripciones.push({
-                        numero_legajo: numeroLegajo,
-                        id_materia_seccion: subject.id_materia_seccion,
-                        año_cursada: subject.año_cursada || new Date().getFullYear(),
-                        intento: 1,
-                        estado: 'adeuda'
-                    });
-                }
-            });
-        }
-
         try {
-            await onSave(inscripciones);
+            await onSave(enrollments);
         } catch (err) {
             setError('Error al guardar inscripciones');
             console.error(err);
@@ -251,62 +122,85 @@ export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
                 </Alert>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-4">
-                <SectionSelector
+            <form onSubmit={handleSubmit} className="space-y-6">
+                <SubjectSelectionSection
+                    title="Materias a Cursar"
+                    tipo="cursando"
                     sections={sections}
-                    selectedSection={selectedSection}
-                    onSectionChange={handleSectionChange}
+                    onSubjectsSelected={handleSubjectsSelected}
+                    preSelectAll={true}
                 />
 
-                {selectedSection && (
-                    <SubjectsList
-                        subjects={subjects}
-                        selectedSubjects={selectedSubjects}
-                        onSubjectToggle={handleSubjectToggle}
-                        title="Materias a Cursar"
-                    />
-                )}
+                <div className="space-y-4">
+                    <div className="flex items-center space-x-4">
+                        <label className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                checked={showRecursada}
+                                onChange={(e) => handleShowRecursada(e.target.checked)}
+                                className="rounded"
+                            />
+                            <span>¿Recursa materias?</span>
+                        </label>
 
-                <RetakingSection
-                    isRetaking={isRetaking}
-                    onRetakingChange={setIsRetaking}
-                    retakeSubjects={retakeSubjects}
-                    selectedRetakeSubjects={selectedRetakeSubjects}
-                    onRetakeSubjectToggle={(id) => {
-                        const newSelected = new Set(selectedRetakeSubjects);
-                        if (newSelected.has(id)) {
-                            newSelected.delete(id);
-                        } else {
-                            newSelected.add(id);
-                        }
-                        setSelectedRetakeSubjects(newSelected);
-                    }}
-                />
+                        <label className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                checked={showPendientes}
+                                onChange={(e) => handleShowPendientes(e.target.checked)}
+                                className="rounded"
+                            />
+                            <span>¿Adeuda materias?</span>
+                        </label>
 
-                <PendingSection
-                    hasPending={hasPending}
-                    onPendingChange={setHasPending}
-                    selectedYear={selectedYear}
-                    onYearChange={setSelectedYear}
-                    pendingSubjects={pendingSubjects}
-                    selectedPendingSubjects={selectedPendingSubjects}
-                    onPendingSubjectToggle={(id) => {
-                        const newSelected = new Set(selectedPendingSubjects);
-                        if (newSelected.has(id)) {
-                            newSelected.delete(id);
-                        } else {
-                            newSelected.add(id);
-                        }
-                        setSelectedPendingSubjects(newSelected);
-                    }}
-                />
+                        <label className="flex items-center space-x-2">
+                            <input
+                                type="checkbox"
+                                checked={showAprobadas}
+                                onChange={(e) => handleShowAprobadas(e.target.checked)}
+                                className="rounded"
+                            />
+                            <span>¿Tiene materias aprobadas?</span>
+                        </label>
+                    </div>
+
+                    {showRecursada && (
+                        <SubjectSelectionSection
+                            title="Materias a Recursar"
+                            tipo="recursa"
+                            sections={sections}
+                            onSubjectsSelected={handleSubjectsSelected}
+                            showAddMore
+                        />
+                    )}
+
+                    {showPendientes && (
+                        <SubjectSelectionSection
+                            title="Materias Pendientes"
+                            tipo="adeuda"
+                            sections={sections}
+                            onSubjectsSelected={handleSubjectsSelected}
+                            showAddMore
+                        />
+                    )}
+
+                    {showAprobadas && (
+                        <SubjectSelectionSection
+                            title="Materias Aprobadas"
+                            tipo="aprobada"
+                            sections={sections}
+                            onSubjectsSelected={handleSubjectsSelected}
+                            showAddMore
+                        />
+                    )}
+                </div>
 
                 <button
                     type="submit"
-                    className="w-full bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 disabled:opacity-50"
-                    disabled={loading || !selectedSection}
+                    className="w-full bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 disabled:opacity-50"
+                    disabled={enrollments.length === 0 || isPendingSelection()}
                 >
-                    {loading ? 'Guardando...' : 'Guardar Inscripción'}
+                    {isPendingSelection() ? 'Complete la selección de materias' : 'Guardar Inscripción'}
                 </button>
             </form>
         </div>
