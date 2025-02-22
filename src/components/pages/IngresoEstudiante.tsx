@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { FormularioEstudiantes } from "../FormularioEstudiantes";
-import { InscripcionMaterias } from "../InscripcionMaterias";
+import { InscripcionMaterias } from '../Inscripcion-Materias/InscripcionMaterias';
 import supabase from "../../utils/supabase";
 import { Alert, AlertDescription } from '@/components/ui/alert';
 

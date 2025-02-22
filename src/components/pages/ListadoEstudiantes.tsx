@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import supabase from '@/utils/supabase';
-import { InscripcionMaterias } from '../InscripcionMaterias';
+import { InscripcionMaterias } from '../Inscripcion-Materias/InscripcionMaterias';
 import {
     Card,
     CardContent,

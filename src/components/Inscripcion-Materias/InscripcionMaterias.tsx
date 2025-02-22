@@ -1,59 +1,23 @@
-import supabase from '@/utils/supabase';
 import React, { useEffect, useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import supabase from '@/utils/supabase';
 
-// Types para la respuesta de Supabase
-interface Materia {
-    id: string; // UUID
-    nombre: string;
-    activa: boolean;
-}
+import { SubjectEnrollment, Section, Subject, MateriaPorSeccion } from './types';
+import { SectionSelector } from './SectionSelector';
+import { SubjectsList } from './SubjectsList';
+import { RetakingSection } from './RetakingSection';
+import { PendingSection } from './PendingSection';
 
-interface MateriaPorCurso {
-    id: string; // UUID
-    materias: Materia;
-}
 
-interface MateriaPorSeccion {
-    id: string; // UUID
-    materias_por_curso: MateriaPorCurso;
-}
-
-interface Section {
-    id: string; // UUID
-    id_curso: string; // UUID
-    nombre: string;
-    activo: boolean;
-}
-
-interface Subject {
-    id: string; // UUID
-    nombre: string;
-    activo: boolean;
-    id_materia_seccion: string; // UUID
-    año_cursada?: number;
-    intento?: number;
-    estado?: 'cursando' | 'recursa' | 'adeuda';
-}
-
-interface InscripcionMateriasProps {
+export interface InscripcionMateriasProps {
     numeroLegajo: string;
     onSave: (inscripciones: SubjectEnrollment[]) => Promise<void>;
-}
-
-interface SubjectEnrollment {
-    numero_legajo: string;
-    id_materia_seccion: string; // UUID
-    año_cursada: number;
-    intento: number;
-    estado: 'cursando' | 'recursa' | 'adeuda';
 }
 
 export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
     numeroLegajo,
     onSave
-}) => {
-    // States
+}) => {// States
     const [sections, setSections] = useState<Section[]>([]);
     const [selectedSection, setSelectedSection] = useState<string | null>(null);
     const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -62,7 +26,7 @@ export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
     const [hasPending, setHasPending] = useState(false);
     const [retakeYear] = useState<number>(new Date().getFullYear());
     const [retakeSubjects, setRetakeSubjects] = useState<Subject[]>([]);
-    const [selectedRetakeSubjects] = useState<Set<string>>(new Set());
+    const [selectedRetakeSubjects, setSelectedRetakeSubjects] = useState<Set<string>>(new Set());
     const [pendingSubjects, setPendingSubjects] = useState<Subject[]>([]);
     const [selectedPendingSubjects, setSelectedPendingSubjects] = useState<Set<string>>(new Set());
     const [loading, setLoading] = useState(false);
@@ -149,7 +113,7 @@ export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
     };
 
     const handleSectionChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const sectionId = e.target.value; // No need to parse as integer anymore
+        const sectionId = e.target.value; 
         setSelectedSection(sectionId);
         setSelectedSubjects(new Set());
     };
@@ -288,111 +252,54 @@ export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Section Selection */}
-                <div>
-                    <label className="block font-medium mb-2">Sección</label>
-                    <select
-                        className="w-full p-2 border rounded"
-                        onChange={handleSectionChange}
-                        value={selectedSection || ''}
-                    >
-                        <option value="">Seleccione una sección</option>
-                        {sections.map(section => (
-                            <option key={section.id} value={section.id}>
-                                {section.nombre}
-                            </option>
-                        ))}
-                    </select>
-                </div>
+                <SectionSelector
+                    sections={sections}
+                    selectedSection={selectedSection}
+                    onSectionChange={handleSectionChange}
+                />
 
-                {/* Subjects Selection */}
                 {selectedSection && (
-                    <div className="space-y-2">
-                        <label className="block font-medium mb-2">Materias a Cursar</label>
-                        {subjects.map(subject => (
-                            <div key={subject.id} className="flex items-center space-x-2">
-                                <input
-                                    type="checkbox"
-                                    checked={selectedSubjects.has(subject.id)}
-                                    onChange={() => handleSubjectToggle(subject.id)}
-                                    className="rounded"
-                                />
-                                <span>{subject.nombre}</span>
-                            </div>
-                        ))}
-                    </div>
+                    <SubjectsList
+                        subjects={subjects}
+                        selectedSubjects={selectedSubjects}
+                        onSubjectToggle={handleSubjectToggle}
+                        title="Materias a Cursar"
+                    />
                 )}
 
-                {/* Retaking Courses Section */}
-                <div>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={isRetaking}
-                            onChange={(e) => setIsRetaking(e.target.checked)}
-                            className="rounded"
-                        />
-                        <span>¿Recursa materias?</span>
-                    </label>
-                </div>
+                <RetakingSection
+                    isRetaking={isRetaking}
+                    onRetakingChange={setIsRetaking}
+                    retakeSubjects={retakeSubjects}
+                    selectedRetakeSubjects={selectedRetakeSubjects}
+                    onRetakeSubjectToggle={(id) => {
+                        const newSelected = new Set(selectedRetakeSubjects);
+                        if (newSelected.has(id)) {
+                            newSelected.delete(id);
+                        } else {
+                            newSelected.add(id);
+                        }
+                        setSelectedRetakeSubjects(newSelected);
+                    }}
+                />
 
-                {/* Pending Courses Section */}
-                <div className="space-y-4">
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={hasPending}
-                            onChange={(e) => setHasPending(e.target.checked)}
-                            className="rounded"
-                        />
-                        <span>¿Adeuda materias?</span>
-                    </label>
-
-                    {hasPending && (
-                        <>
-                            <div>
-                                <label className="block font-medium mb-2">Año de cursada</label>
-                                <select
-                                    className="w-full p-2 border rounded"
-                                    value={selectedYear}
-                                    onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                                >
-                                    {Array.from(
-                                        { length: 5 },
-                                        (_, i) => new Date().getFullYear() - i
-                                    ).map(year => (
-                                        <option key={year} value={year}>
-                                            {year}
-                                        </option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div className="space-y-2">
-                                <label className="block font-medium mb-2">Materias adeudadas</label>
-                                {pendingSubjects.map(subject => (
-                                    <div key={subject.id} className="flex items-center space-x-2">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedPendingSubjects.has(subject.id)}
-                                            onChange={() => {
-                                                const newSelected = new Set(selectedPendingSubjects);
-                                                if (newSelected.has(subject.id)) {
-                                                    newSelected.delete(subject.id);
-                                                } else {
-                                                    newSelected.add(subject.id);
-                                                }
-                                                setSelectedPendingSubjects(newSelected);
-                                            }}
-                                            className="rounded"
-                                        />
-                                        <span>{subject.nombre}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </>
-                    )}
-                </div>
+                <PendingSection
+                    hasPending={hasPending}
+                    onPendingChange={setHasPending}
+                    selectedYear={selectedYear}
+                    onYearChange={setSelectedYear}
+                    pendingSubjects={pendingSubjects}
+                    selectedPendingSubjects={selectedPendingSubjects}
+                    onPendingSubjectToggle={(id) => {
+                        const newSelected = new Set(selectedPendingSubjects);
+                        if (newSelected.has(id)) {
+                            newSelected.delete(id);
+                        } else {
+                            newSelected.add(id);
+                        }
+                        setSelectedPendingSubjects(newSelected);
+                    }}
+                />
 
                 <button
                     type="submit"
