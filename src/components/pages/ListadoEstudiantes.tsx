@@ -15,51 +15,39 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Dialog,
+    DialogContent,
+
+} from "@/components/ui/dialog"
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Loader2 } from "lucide-react";
-
-interface Section {
-    id: number;
-    nombre: string;
-    activo: boolean;
-}
-
-interface SeccionInfo {
-    nombre: string;
-  }
-
-interface MateriasPorSeccion {
-    id_seccion: number;
-    secciones: {
-        id: number;
-        nombre: string;
-    };
-}
-
-interface Inscripcion {
-    numero_legajo: string;
-    materias_por_seccion: MateriasPorSeccion;
-}
-
-interface Student {
-    numero_legajo: string;
-    nombre: string;
-    apellido: string;
-    activo: boolean;
-    seccion?: SeccionInfo | null;
-}
+import { EnrollmentType } from '@/types';
+import {
+    StudentDB,
+    SeccionDB,
+    InscripcionDB,
+    StudentResumen
+} from '@/types/estudiantes';
 
 export const ListadoEstudiantes: React.FC = () => {
-    const [students, setStudents] = useState<Student[]>([]);
-    const [sections, setSections] = useState<Section[]>([]);
+    const [students, setStudents] = useState<StudentResumen[]>([]);
+    const [sections, setSections] = useState<SeccionDB[]>([]);
     const [selectedSection, setSelectedSection] = useState<string>('all');
-    const [showMaterias, setShowMaterias] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
-    const [showInscription, setShowInscription] = useState(false);
-    const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+
+    const [showMateriasModal, setShowMateriasModal] = useState(false);
+    const [showInscriptionModal, setShowInscriptionModal] = useState(false);
+    const [selectedStudent, setSelectedStudent] = useState<StudentResumen | null>(null);
+
+    const handleCloseModals = () => {
+        setShowMateriasModal(false);
+        setShowInscriptionModal(false);
+        setSelectedStudent(null);
+    };
 
     useEffect(() => {
         fetchSections();
@@ -78,11 +66,103 @@ export const ListadoEstudiantes: React.FC = () => {
                 .order('nombre');
 
             if (error) throw error;
-            setSections(data || []);
+            setSections(data as SeccionDB[] || []);
         } catch (err) {
             setError('Error al cargar secciones');
             console.error(err);
         }
+    };
+
+    const obtenerResumenEstudiante = async (legajo: string) => {
+        const { data: inscripcionesData, error } = await supabase
+            .from('inscripciones_materias')
+            .select(`
+                id,
+                año_cursada,
+                estado,
+                materias_por_seccion (
+                    id,
+                    secciones (
+                        id,
+                        nombre
+                    )
+                )
+            `)
+            .eq('numero_legajo', legajo);
+
+        if (error) throw error;
+
+        if (!inscripcionesData) throw new Error('No se encontraron datos');
+
+        const inscripciones = (inscripcionesData as unknown) as InscripcionDB[];
+
+        // Agrupar por estado, año y sección
+        const resumenPorEstado = inscripciones.reduce<Record<EnrollmentType, Record<number, { total: number; porSeccion: Record<string, number> }>>>((acc, inscripcion) => {
+            const estado = inscripcion.estado;
+            const año = inscripcion.año_cursada;
+            const seccion = inscripcion.materias_por_seccion.secciones.nombre;
+
+            if (!acc[estado]) {
+                acc[estado] = {};
+            }
+            if (!acc[estado][año]) {
+                acc[estado][año] = { total: 0, porSeccion: {} };
+            }
+            acc[estado][año].total++;
+
+            if (!acc[estado][año].porSeccion[seccion]) {
+                acc[estado][año].porSeccion[seccion] = 0;
+            }
+            acc[estado][año].porSeccion[seccion]++;
+
+            return acc;
+        }, {} as Record<EnrollmentType, Record<number, { total: number; porSeccion: Record<string, number> }>>);
+
+        // Determinar sección actual
+        const inscripcionesCursando = inscripciones.filter(i => i.estado === 'cursando');
+        const añoActual = inscripcionesCursando.length > 0
+            ? Math.max(...inscripcionesCursando.map(i => i.año_cursada))
+            : 0;
+
+        const materiasPorSeccion = inscripcionesCursando
+            .filter(i => i.año_cursada === añoActual)
+            .reduce<Record<string, number>>((acc, i) => {
+                const seccion = i.materias_por_seccion.secciones.nombre;
+                if (!acc[seccion]) acc[seccion] = 0;
+                acc[seccion]++;
+                return acc;
+            }, {});
+
+        const seccionMayorMaterias = Object.entries(materiasPorSeccion)
+            .sort(([, a], [, b]) => b - a)[0];
+
+        return {
+            seccionActual: seccionMayorMaterias ? {
+                nombre: seccionMayorMaterias[0],
+                año: añoActual,
+                cantidadMaterias: seccionMayorMaterias[1]
+            } : null,
+            materiasPorEstado: {
+                aprobadas: Object.values(resumenPorEstado.aprobada || {})
+                    .reduce((a, b) => a + b.total, 0) || 0,
+                cursando: Object.values(resumenPorEstado.cursando || {})
+                    .reduce((a, b) => a + b.total, 0) || 0,
+                adeuda: Object.entries(resumenPorEstado.adeuda || {})
+                    .map(([año, data]) => ({
+                        año: parseInt(año),
+                        cantidad: data.total,
+                        porSeccion: Object.entries(data.porSeccion)
+                            .map(([seccion, cantidad]) => ({ seccion, cantidad }))
+                    })),
+                recursando: Object.entries(resumenPorEstado.recursa || {})
+                    .map(([año, data]) => ({
+                        año: parseInt(año),
+                        cantidad: data.total,
+                        porSeccion: Object.entries(data.porSeccion)
+                            .map(([seccion, cantidad]) => ({ seccion, cantidad }))
+                    }))
+            }
+        };
     };
 
     const fetchStudents = async () => {
@@ -90,38 +170,6 @@ export const ListadoEstudiantes: React.FC = () => {
             setLoading(true);
             setError(null);
 
-            // Primero, obtenemos todas las inscripciones para conocer la sección de cada estudiante
-            const { data: inscripciones, error: inscripcionesError } = await supabase
-                .from('inscripciones_materias')
-                .select(`
-                    numero_legajo,
-                    materias_por_seccion!inner (
-                        id_seccion,
-                        secciones (
-                            id,
-                            nombre
-                        )
-                    )
-                `) as { data: Inscripcion[], error: any };
-
-            if (inscripcionesError) throw inscripcionesError;
-
-            // Agrupar materias por estudiante y por sección
-            const estudiantesSecciones = inscripciones.reduce<{ [key: string]: { [seccion: string]: number } }>((acc, curr) => {
-                const { numero_legajo, materias_por_seccion } = curr;
-                const seccionNombre = materias_por_seccion.secciones.nombre;
-
-                if (!acc[numero_legajo]) acc[numero_legajo] = {};
-                acc[numero_legajo][seccionNombre] = (acc[numero_legajo][seccionNombre] || 0) + 1;
-
-                return acc;
-            }, {});
-
-            // Determinar la sección predominante
-            const determinarSeccionPrincipal = (secciones: { [seccion: string]: number }) => {
-                return Object.entries(secciones)
-                    .sort((a, b) => b[1] - a[1] || parseInt(b[0]) - parseInt(a[0]))[0][0]; // Mayor cantidad o número más alto
-            };
             let query = supabase
                 .from('estudiantes')
                 .select(`
@@ -134,28 +182,32 @@ export const ListadoEstudiantes: React.FC = () => {
                 .order('apellido');
 
             if (selectedSection !== 'all') {
-                const legajos = Object.entries(estudiantesSecciones)
-                    .filter(([_, seccion]) => seccion.id.toString() === selectedSection)
-                    .map(([legajo]) => legajo);
-                query = query.in('numero_legajo', legajos);
+                const { data: inscripciones } = await supabase
+                    .from('inscripciones_materias')
+                    .select('numero_legajo, materias_por_seccion!inner(id_seccion)')
+                    .eq('materias_por_seccion.id_seccion', selectedSection)
+                    .eq('estado', 'cursando');
+
+                if (inscripciones) {
+                    const legajos = [...new Set(inscripciones.map(item => item.numero_legajo))];
+                    query = query.in('numero_legajo', legajos);
+                }
             }
 
-            const { data, error } = await query;
-
+            const { data: studentsData, error } = await query;
             if (error) throw error;
 
-           // Agregar la sección principal a cada estudiante
-        const studentsWithSections = data.map(student => {
-            const secciones = estudiantesSecciones[student.numero_legajo] || {};
-            const seccionPredominante = Object.keys(secciones).length ? determinarSeccionPrincipal(secciones) : null;
-            
-            return {
-                ...student,
-                seccion: seccionPredominante ? { nombre: seccionPredominante } : null
-            };
-        });
+            const students = studentsData as StudentDB[];
 
-        setStudents(studentsWithSections);
+            // Obtener resumen para cada estudiante
+            const studentsWithSummary = await Promise.all(
+                students.map(async (student) => {
+                    const resumen = await obtenerResumenEstudiante(student.numero_legajo);
+                    return { ...student, resumen } as StudentResumen;
+                })
+            );
+
+            setStudents(studentsWithSummary);
         } catch (err) {
             setError('Error al cargar estudiantes');
             console.error(err);
@@ -178,7 +230,6 @@ export const ListadoEstudiantes: React.FC = () => {
             setSuccess('Inscripciones guardadas exitosamente');
             setTimeout(() => setSuccess(null), 3000);
 
-            setShowInscription(false);
             setSelectedStudent(null);
             fetchStudents();
         } catch (err: any) {
@@ -217,7 +268,7 @@ export const ListadoEstudiantes: React.FC = () => {
                             <SelectContent>
                                 <SelectItem value="all">Todas las secciones</SelectItem>
                                 {sections.map((section) => (
-                                    <SelectItem key={section.id} value={section.id.toString()}>
+                                    <SelectItem key={section.id} value={section.id}>
                                         {section.nombre}
                                     </SelectItem>
                                 ))}
@@ -237,37 +288,73 @@ export const ListadoEstudiantes: React.FC = () => {
                         <div className="space-y-4">
                             {students.map((student) => (
                                 <Card key={student.numero_legajo} className="p-4">
-                                    <div className="flex justify-between items-center">
-                                        <div>
-                                            <h3 className="font-medium">
-                                                {student.apellido}, {student.nombre}
-                                            </h3>
-                                            <div className="space-y-1">
+                                    <div className="space-y-4">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <h3 className="font-medium">
+                                                    {student.apellido}, {student.nombre}
+                                                </h3>
                                                 <p className="text-sm text-gray-500">
                                                     Legajo: {student.numero_legajo}
                                                 </p>
-                                                {student.seccion && (
-                                                    <p className="text-sm text-green-600 font-medium">
-                                                        Sección: {student.seccion.nombre}
+                                                {student.resumen?.seccionActual && (
+                                                    <p className="text-sm text-green-600 bg-green-50 px-2 py-1 rounded-md inline-block">
+                                                        Cursando: {student.resumen.seccionActual.nombre} ({student.resumen.seccionActual.año})
                                                     </p>
                                                 )}
                                             </div>
+                                            <Button
+                                                onClick={() => {
+                                                    setSelectedStudent(student);
+                                                    if (student.resumen?.seccionActual) {
+                                                        setShowMateriasModal(true);
+                                                    } else {
+                                                        setShowInscriptionModal(true);
+                                                    }
+                                                }}
+                                                variant={student.resumen?.seccionActual ? "secondary" : "default"}
+                                            >
+                                                {student.resumen?.seccionActual ? "Ver Materias Adeudadas" : "Inscribir a Materias"}
+                                            </Button>
                                         </div>
-                                        <Button
-                                            onClick={() => {
-                                                setSelectedStudent(student);
-                                                if (student.seccion) {
-                                                    setShowMaterias(true);
-                                                    setShowInscription(false);
-                                                } else {
-                                                    setShowInscription(true);
-                                                    setShowMaterias(false);
-                                                }
-                                            }}
-                                            variant={student.seccion ? "secondary" : "default"}
-                                        >
-                                            {student.seccion ? "Ver Materias" : "Inscribir a Materias"}
-                                        </Button>
+
+                                        {student.resumen && (
+                                            <div className="text-sm space-y-1 border-t pt-3">
+                                                {student.resumen.materiasPorEstado.adeuda.length > 0 && (
+                                                    <p className="text-red-600">
+                                                        Adeuda:{' '}
+                                                        {student.resumen.materiasPorEstado.adeuda.map((a, index) => (
+                                                            <span key={`${a.año}-${index}`}>
+                                                                {index > 0 && ', '}
+                                                                {a.porSeccion.map((sec, secIndex) => (
+                                                                    <span key={`${a.año}-${sec.seccion}-${secIndex}`}>
+                                                                        {secIndex > 0 && ', '}
+                                                                        {sec.cantidad} de {sec.seccion} ({a.año})
+                                                                    </span>
+                                                                ))}
+                                                            </span>
+                                                        ))}
+                                                    </p>
+                                                )}
+
+                                                {student.resumen.materiasPorEstado.recursando.length > 0 && (
+                                                    <p className="text-orange-600">
+                                                        Recursando:{' '}
+                                                        {student.resumen.materiasPorEstado.recursando.map((r, index) => (
+                                                            <span key={`${r.año}-${index}`}>
+                                                                {index > 0 && ', '}
+                                                                {r.porSeccion.map((sec, secIndex) => (
+                                                                    <span key={`${r.año}-${sec.seccion}-${secIndex}`}>
+                                                                        {secIndex > 0 && ', '}
+                                                                        {sec.cantidad} de {sec.seccion} ({r.año})
+                                                                    </span>
+                                                                ))}
+                                                            </span>
+                                                        ))}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </Card>
                             ))}
@@ -276,30 +363,33 @@ export const ListadoEstudiantes: React.FC = () => {
                 </CardContent>
             </Card>
 
-            {showMaterias && selectedStudent && (
-                <Card>
-                    <CardContent className="pt-6">
+            <Dialog open={showMateriasModal} onOpenChange={setShowMateriasModal}>
+                <DialogContent className="max-h-[90vh] w-[90vw] max-w-2xl overflow-y-auto">
+                    {selectedStudent && (
                         <MateriasCursadas
                             numeroLegajo={selectedStudent.numero_legajo}
-                            onClose={() => {
-                                setShowMaterias(false);
-                                setSelectedStudent(null);
-                            }}
+                            onClose={handleCloseModals}
+                            estadosFiltrar={['recursa', 'adeuda']}
+                            titulo="Materias Adeudadas y Recursando"
+                            hideCloseButton
                         />
-                    </CardContent>
-                </Card>
-            )}
+                    )}
+                </DialogContent>
+            </Dialog>
 
-            {showInscription && selectedStudent && (
-                <Card>
-                    <CardContent className="pt-6">
+            <Dialog open={showInscriptionModal} onOpenChange={setShowInscriptionModal}>
+                <DialogContent className="max-h-[90vh] w-[90vw] max-w-2xl overflow-y-auto">
+                    {selectedStudent && (
                         <InscripcionMaterias
                             numeroLegajo={selectedStudent.numero_legajo}
-                            onSave={handleInscription}
+                            onSave={async (inscripciones) => {
+                                await handleInscription(inscripciones);
+                                handleCloseModals();
+                            }}
                         />
-                    </CardContent>
-                </Card>
-            )}
+                    )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 };

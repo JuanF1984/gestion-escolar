@@ -14,7 +14,7 @@ export interface InscripcionMateriasProps {
 
 export const InscripcionMaterias: React.FC<InscripcionMateriasProps> = ({
     numeroLegajo,
-    onSave
+    onSave,
 }) => {
     const [sections, setSections] = useState<Section[]>([]);
     const [showPendientes, setShowPendientes] = useState(false);

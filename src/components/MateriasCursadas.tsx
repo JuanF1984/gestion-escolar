@@ -18,6 +18,9 @@ import {
 interface MateriasCursadasProps {
     numeroLegajo: string;
     onClose?: () => void;
+    hideCloseButton?: boolean;
+    estadosFiltrar?: EnrollmentType[];
+    titulo?: string;
 }
 
 interface InscripcionResponse {
@@ -42,7 +45,7 @@ interface MateriasPorSeccionGroup {
     materias: MateriaInfo[];
 }
 
-export const MateriasCursadas: React.FC<MateriasCursadasProps> = ({ numeroLegajo, onClose }) => {
+export const MateriasCursadas: React.FC<MateriasCursadasProps> = ({ numeroLegajo, onClose, hideCloseButton = false, estadosFiltrar, titulo = "Materias Cursadas" }) => {
     const [materias, setMaterias] = useState<MateriasPorSeccionGroup[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -56,7 +59,8 @@ export const MateriasCursadas: React.FC<MateriasCursadasProps> = ({ numeroLegajo
             setLoading(true);
             setError(null);
 
-            const { data, error } = await supabase
+            // Definimos el tipo de la query
+            let query = supabase
                 .from('inscripciones_materias')
                 .select(`
                     id,
@@ -78,6 +82,15 @@ export const MateriasCursadas: React.FC<MateriasCursadasProps> = ({ numeroLegajo
                 `)
                 .eq('numero_legajo', numeroLegajo)
                 .order('año_cursada', { ascending: false });
+
+            type QueryType = typeof query;
+
+            // Aplicar filtro de estados si se proporciona
+            if (estadosFiltrar && estadosFiltrar.length > 0) {
+                query = query.in('estado', estadosFiltrar) as QueryType;
+            }
+
+            const { data, error } = await query;
 
             if (error) throw error;
 
@@ -146,15 +159,17 @@ export const MateriasCursadas: React.FC<MateriasCursadasProps> = ({ numeroLegajo
     return (
         <div className="space-y-6">
             <CardHeader className="px-0 flex flex-row items-center justify-between">
-                <CardTitle>Materias Cursadas</CardTitle>
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={onClose}
-                    className="h-8 w-8 p-0"
-                >
-                    <X className="h-4 w-4" />
-                </Button>
+                <CardTitle>{titulo}</CardTitle>
+                {!hideCloseButton && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={onClose}
+                        className="h-8 w-8 p-0"
+                    >
+                        <X className="h-4 w-4" />
+                    </Button>
+                )}
             </CardHeader>
 
             {error && (
