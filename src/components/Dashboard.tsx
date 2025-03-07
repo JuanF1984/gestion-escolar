@@ -14,10 +14,11 @@ export const Dashboard: React.FC = () => {
                     <button onClick={() => navigate("/materias")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Materias</button>
                     <button onClick={() => navigate("/secciones")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Secciones</button>
                     <button onClick={() => navigate("/materias-cursos")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Relacionar Materia a curso</button>
-                    <button onClick={() => navigate("/cursos")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Cursos</button>
+                    {/* <button onClick={() => navigate("/cursos")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Cursos</button> */}
                     <h3 className="text-lg font-bold mb-4">Estudiantes</h3>
                     <button onClick={() => navigate("/ingresar-estudiante")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Registrar Estudiante</button>
                     <button onClick={() => navigate("/listado-estudiantes")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Listar Estudiantes</button>
+                    <button onClick={() => navigate("/registro-inasistencias")} className="w-full text-left p-2 bg-blue-500 text-white rounded">Registrar Inasistencia</button>
 
                 </nav>
             </aside>

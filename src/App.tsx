@@ -6,6 +6,7 @@ import { ConfiguracionCursos } from "./components/ConfiguracionCursos"
 import { Secciones } from "./components/pages/Secciones"
 import { MateriasPorCurso } from "./components/pages/MateriasPorCurso"
 import { ListadoEstudiantes } from "./components/pages/ListadoEstudiantes"
+import { RegistroInasistencias } from "./components/pages/RegistroInasistencias"
 import { Dashboard } from "./components/Dashboard"
 
 const App: React.FC = () => {
@@ -22,6 +23,7 @@ const App: React.FC = () => {
             <Route path="/configurar-cursos" element={<ConfiguracionCursos />}/>
             <Route path="/materias-cursos" element={<MateriasPorCurso />}/>
             <Route path="/listado-estudiantes" element={<ListadoEstudiantes />}/>
+            <Route path="/registro-inasistencias" element={<RegistroInasistencias />}/>
             <Route path="*" element={
               <>
                 <h1 className="text-2xl font-bold mb-4">Bienvenido a Gestión Escolar</h1>
